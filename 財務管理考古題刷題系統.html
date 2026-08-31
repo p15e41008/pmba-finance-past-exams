@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>財務管理考古題刷題系統 (含錯題複習版)</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Marked.js (Markdown 解析) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- SheetJS (Excel .xlsx 匯入支援) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- FontAwesome 圖標 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- MathJax 數學公式渲染引擎 -->
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+        processEscapes: true
+      },
+      options: {
+        ignoreHtmlClass: 'tex2jax_ignore',
+        processHtmlClass: 'has-math'
+      }
+    };
+  </script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+  <style>
+    /* Markdown 與解析區樣式 */
+    .markdown-body h1, .markdown-body h2, .markdown-body h3 { font-weight: bold; margin-top: 1.25em; margin-bottom: 0.75em; }
+    .markdown-body h3 { font-size: 1.15rem; color: #1e293b; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.25rem; }
+    .markdown-body ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1em; }
+    .markdown-body ol { list-style-type: decimal; padding-left: 1.5rem; margin-bottom: 1em; }
+    .markdown-body p { margin-bottom: 1em; line-height: 1.6; }
+    
+    /* 題目區與補充說明區內的圖片自適應與點擊放大樣式 */
+    .markdown-body img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 1.5rem auto;
+      cursor: zoom-in;
+      border-radius: 12px;
+      border: 4px solid #f8fafc;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      transition: all 0.2s ease-in-out;
+    }
+    
+    .markdown-body img:hover {
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      transform: translateY(-2px);
+    }
+
+    #lightboxModal { transition: opacity 0.25s ease; }
+    #lightboxImage { transition: transform 0.3s ease-out; }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800 flex flex-col font-sans">
+
+  <!-- Header 導覽列 -->
+  <header class="bg-indigo-700 text-white shadow-md">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex flex-wrap justify-between items-center gap-4">
+      <div class="flex items-center space-x-3">
+        <i class="fa-solid fa-graduation-cap text-2xl text-yellow-300"></i>
+        <div>
+          <h1 class="text-xl font-bold tracking-wide">財務管理考古題刷題系統</h1>
+          <div id="importTimestamp" class="text-xs text-indigo-200 mt-0.5">目前版本：預設題庫</div>
+        </div>
+      </div>
+      <div class="flex items-center space-x-3">
+        <label class="cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white text-sm px-3 py-1.5 rounded-lg border border-indigo-400 shadow-sm flex items-center gap-2 transition">
+          <i class="fa-solid fa-file-excel"></i> 匯入 Excel 題庫
+          <input type="file" id="excel-file-input" accept=".xlsx, .xls" class="hidden" onchange="handleFileUpload(event)">
+        </label>
+        <button onclick="resetData()" class="bg-indigo-800 hover:bg-indigo-900 text-xs px-2.5 py-1.5 rounded text-indigo-200 hover:text-white transition" title="清空快取並重置為預設題庫">
+          <i class="fa-solid fa-rotate-right"></i> 重置題庫
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main 內容區域 -->
+  <main class="max-w-6xl mx-auto px-4 py-6 flex-grow w-full">
+
+    <!-- 模式 1：篩選與清單檢視 -->
+    <section id="listViewSection" class="space-y-6">
+      <!-- 篩選器卡片 -->
+      <div class="bg-white rounded-xl shadow-sm p-5 border border-slate-200">
+        <h2 class="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-filter text-indigo-600"></i> 考古題條件篩選
+        </h2>
+        <!-- 6 欄篩選網格 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">課程名稱</label>
+            <select id="filterCourse" onchange="applyFilters()" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="">全部課程</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">考古題 / 試卷日期</label>
+            <select id="filterExam" onchange="applyFilters()" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="">全部考題</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">對應講義章節</label>
+            <select id="filterChapter" onchange="applyFilters()" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="">全部章節</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">核心主題</label>
+            <select id="filterTopic" onchange="applyFilters()" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="">全部主題</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">考題出現次數</label>
+            <select id="filterMinCount" onchange="applyFilters()" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="1">全部次數 (≥ 1 次)</option>
+              <option value="2">熱門考題 (≥ 2 次)</option>
+              <option value="3">極高頻考題 (≥ 3 次)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">關鍵字搜尋</label>
+            <div class="relative">
+              <input type="text" id="filterKeyword" oninput="applyFilters()" placeholder="搜尋題目、解析..." class="w-full bg-slate-50 border border-slate-300 rounded-lg pl-8 pr-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400 text-sm"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- 複習與去重開關控制區 -->
+        <div class="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center space-x-6">
+            <!-- 排除重複題目核取方塊 -->
+            <label class="inline-flex items-center cursor-pointer text-sm text-slate-700 font-medium select-none">
+              <input type="checkbox" id="chkDeduplicate" onchange="applyFilters()" class="sr-only peer">
+              <div class="relative w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+              <span class="ms-3 flex items-center gap-1.5">
+                <i class="fa-solid fa-filter-circle-xmark text-indigo-600"></i> 
+                排除重複題目
+              </span>
+            </label>
+
+            <!-- 只顯示需複習題目開關 -->
+            <label class="inline-flex items-center cursor-pointer text-sm text-slate-700 font-medium select-none">
+              <input type="checkbox" id="chkReviewOnly" onchange="applyFilters()" class="sr-only peer">
+              <div class="relative w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-rose-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-500"></div>
+              <span class="ms-3 flex items-center gap-1.5 text-rose-600 font-bold">
+                <i class="fa-solid fa-bookmark"></i> 
+                只顯示「需複習」題目 (<span id="reviewCountBadge">0</span>)
+              </span>
+            </label>
+          </div>
+
+          <button onclick="clearAllReviewFlags()" class="text-xs text-slate-400 hover:text-rose-600 transition flex items-center gap-1">
+            <i class="fa-solid fa-trash-can"></i> 清空所有複習註記
+          </button>
+        </div>
+      </div>
+
+      <!-- 題目清單區塊 -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="p-4 bg-slate-100 border-b border-slate-200 flex flex-wrap justify-between items-center gap-3">
+          <div class="flex items-center space-x-3">
+            <span class="font-bold text-slate-700">題目清單</span>
+            <span id="filteredCount" class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">0 題</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="toggleSelectAll(true)" class="text-xs bg-slate-200 hover:bg-slate-300 px-3 py-1.5 rounded font-medium transition">全選</button>
+            <button onclick="toggleSelectAll(false)" class="text-xs bg-slate-200 hover:bg-slate-300 px-3 py-1.5 rounded font-medium transition">取消全選</button>
+            <button onclick="startPractice()" class="text-sm bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-4 py-1.5 rounded-lg shadow-sm flex items-center gap-2 transition">
+              <i class="fa-solid fa-circle-play"></i> 開始練習 Selected (<span id="selectedCount">0</span>)
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="bg-slate-50 text-slate-500 border-b border-slate-200 font-semibold text-xs">
+                <th class="p-3 w-12 text-center">選擇</th>
+                <th class="p-3 w-14 text-center">複習</th>
+                <th class="p-3 w-14 text-center">題號</th>
+                <th class="p-3 w-20 text-center">出現次數</th>
+                <th class="p-3 w-24">考古題</th>
+                <th class="p-3 w-28">章節 / 主題</th>
+                <th class="p-3">題目內容</th>
+                <th class="p-3 w-16 text-center">操作</th>
+              </tr>
+            </thead>
+            <tbody id="questionTableBody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 模式 2：單題練習卡片模式 -->
+    <section id="practiceViewSection" class="hidden space-y-4 max-w-4xl mx-auto">
+      <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <button onclick="backToList()" class="text-slate-600 hover:text-indigo-600 font-medium text-sm flex items-center gap-2 transition">
+          <i class="fa-solid fa-arrow-left"></i> 返回題目清單
+        </button>
+        <div class="text-sm font-semibold text-slate-600">
+          進度：<span id="currentQuestionIndex" class="text-indigo-600 text-base font-bold">1</span> / <span id="totalPracticeCount">0</span> 題
+        </div>
+        <button onclick="nextQuestion(true)" class="text-slate-500 hover:text-indigo-600 text-xs flex items-center gap-1 transition">
+          <i class="fa-solid fa-shuffle"></i> 隨機抽題
+        </button>
+      </div>
+
+      <!-- 刷題卡片 -->
+      <div class="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
+        <div class="p-6 md:p-8 bg-gradient-to-r from-slate-900 to-indigo-950 text-white relative">
+          <div class="flex flex-wrap justify-between items-center text-xs text-indigo-300 font-medium mb-3 gap-2">
+            <!-- 頂部標籤群 -->
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="cardCourseBadge" class="bg-indigo-900/80 border border-indigo-700 px-2.5 py-1 rounded-full">課程</span>
+              <span id="cardExamBadge" class="bg-slate-800 border border-slate-700 px-2.5 py-1 rounded-full">考題</span>
+              <span id="cardChapterBadge" class="bg-blue-900/80 border border-blue-600 text-blue-200 px-2.5 py-1 rounded-full flex items-center gap-1">
+                <i class="fa-solid fa-book"></i> <span id="cardChapterText">章節</span>
+              </span>
+              <span id="cardTopicBadge" class="bg-emerald-900/80 border border-emerald-600 text-emerald-200 px-2.5 py-1 rounded-full flex items-center gap-1">
+                <i class="fa-solid fa-tag"></i> <span id="cardTopicText">主題</span>
+              </span>
+            </div>
+            
+            <div class="flex items-center space-x-3">
+              <!-- 卡片右上角標記複習按鈕 -->
+              <button id="btnCardReview" onclick="toggleCurrentCardReview()" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 px-3 py-1 rounded-full font-bold flex items-center gap-1.5 transition">
+                <i class="fa-regular fa-bookmark"></i> 註記複習
+              </button>
+              <!-- 出現次數標籤 -->
+              <span id="cardCountBadge" class="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2.5 py-1 rounded-full font-bold flex items-center gap-1">
+                <i class="fa-solid fa-fire"></i> 出現 1 次
+              </span>
+            </div>
+          </div>
+          <h3 class="text-xs uppercase tracking-widest text-indigo-400 font-bold mb-2">QUESTION <span id="cardQuestionNum">#1</span></h3>
+          <div id="cardQuestionText" class="text-lg md:text-xl font-medium leading-relaxed text-slate-100 markdown-body has-math"></div>
+        </div>
+
+        <!-- 答案與解析互動區 -->
+        <div class="p-6 md:p-8 space-y-6">
+          <div>
+            <button id="btnShowAnswer" onclick="toggleAnswer()" class="w-full py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow transition flex justify-between items-center">
+              <span><i class="fa-solid fa-key mr-2"></i>顯示標準答案</span>
+              <i id="iconAnswer" class="fa-solid fa-chevron-down"></i>
+            </button>
+            <div id="answerContainer" class="hidden mt-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 font-semibold text-lg flex items-center gap-3">
+              <i class="fa-solid fa-circle-check text-amber-600 text-xl"></i>
+              <span id="cardAnswerText"></span>
+            </div>
+          </div>
+
+          <div>
+            <button id="btnShowExplanation" onclick="toggleExplanation()" class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow transition flex justify-between items-center">
+              <span><i class="fa-solid fa-book-open mr-2"></i>顯示補充說明與解析</span>
+              <i id="iconExplanation" class="fa-solid fa-chevron-down"></i>
+            </button>
+            <div id="explanationContainer" class="hidden mt-3 p-6 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 markdown-body has-math shadow-inner">
+              <div id="cardExplanationText"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部切換列 -->
+        <div class="bg-slate-100 px-6 py-4 border-t border-slate-200 flex justify-between items-center">
+          <button onclick="prevQuestion()" class="px-5 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-xl shadow-sm flex items-center gap-2 transition">
+            <i class="fa-solid fa-chevron-left"></i> 上一題
+          </button>
+          <button onclick="nextQuestion()" class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md flex items-center gap-2 transition">
+            下一題 <i class="fa-solid fa-chevron-right"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 全螢幕燈箱 Modal -->
+  <div id="lightboxModal" class="fixed inset-0 bg-slate-950/90 z-50 flex items-center justify-center opacity-0 pointer-events-none p-4" onclick="closeLightbox()">
+    <button class="absolute top-4 right-4 text-white hover:text-slate-300 text-3xl transition">
+      <i class="fa-solid fa-times"></i>
+    </button>
+    <img id="lightboxImage" src="" alt="放大圖" class="max-w-full max-h-full rounded shadow-xl transform scale-90">
+  </div>
+
+  <script>
+    // 預設考古題資料庫
+    const initialQuestions = [
+      {
+        course: "財務管理", 
+        exam: "2023-09-02", 
+        chapter: "L3 現金流量評價", 
+        topic: "NPV 與 IRR 互斥案決策",
+        num: 16,
+        question: `右下圖顯示 Project A 與 Project B 在淨現值與內部報酬率的關係。在互斥案條件下，當 R < 10.55% 時，應選擇 Project A。\n\n![2023090216](https://lh3.googleusercontent.com/d/1kW2Y3r5glq1pVfdqwKqFZEc6rPdvYhed)`,
+        answer: "X, 應選擇 Project B",
+        explanation: `這個陳述是**錯的**（判斷題應填 **\`X\`**）。\n\n### 財務學理與圖表交點 (Crossover Rate) 解析\n\n在評估**互斥案 (Mutually Exclusive Projects)** 時，當兩計畫的現金流量時間點或規模不同，其 NPV 曲線會產生交點，此交點對應的折現率稱為**交叉率（Crossover Rate，本題圖中為 $10.55\\%$）**。\n\n1. **當折現率 $R < 10.55\\%$ 時**：\n   * **Project B** 的淨現值（$NPV_B$）高於 **Project A** 的淨現值（$NPV_A$）。\n   * 根據淨現值法則 (NPV Rule)，在互斥條件下應選擇 NPV 較高的計畫，因此**應選擇 Project B**。\n\n2. **當折現率 $R > 10.55\\%$ 時**：\n   * **Project A** 的淨現值（$NPV_A$）高於 **Project B** 的淨現值（$NPV_B$）。\n   * 此時才**應選擇 Project A**。`,
+        count: 2
+      }
+    ];
+
+    let allQuestions = [];
+    let filteredQuestions = [];
+    let selectedIndices = new Set();
+    let practiceList = [];
+    let currentPracticePointer = 0;
+    let reviewSet = new Set();
+
+    marked.setOptions({ breaks: true });
+    const normalizeKey = str => (str || '').replace(/\s+/g, '').toLowerCase();
+
+    window.onload = function() {
+      // 載入複習標記集合
+      const savedReviews = localStorage.getItem('fin_management_reviews_v1');
+      if (savedReviews) {
+        try { reviewSet = new Set(JSON.parse(savedReviews)); } catch(e) { reviewSet = new Set(); }
+      }
+
+      // 載入題庫快取與版本資訊
+      const savedData = localStorage.getItem('fin_management_questions_v1_5');
+      const savedTime = localStorage.getItem('fin_management_questions_time');
+
+      if (savedData) {
+        try { 
+          allQuestions = JSON.parse(savedData); 
+          if (savedTime) {
+            document.getElementById('importTimestamp').innerText = `已載入匯入版本：${savedTime}`;
+          }
+        } catch(e) { 
+          allQuestions = [...initialQuestions]; 
+        }
+      } else {
+        allQuestions = [...initialQuestions];
+      }
+
+      processQuestionCounts();
+      populateFilters();
+      applyFilters();
+    };
+
+    function processQuestionCounts() {
+      const freqMap = {};
+      allQuestions.forEach(q => {
+        const key = normalizeKey(q.question);
+        freqMap[key] = (freqMap[key] || 0) + 1;
+      });
+
+      allQuestions.forEach(q => {
+        const key = normalizeKey(q.question);
+        q.calculatedCount = freqMap[key] || 1;
+        q.count = Number(q.excelCount) || q.calculatedCount;
+      });
+    }
+
+    // 填入篩選清單（含由新到舊日期排序、章節與主題排序）
+    function populateFilters() {
+      const courses = [...new Set(allQuestions.map(q => q.course))].filter(Boolean).sort();
+      
+      // 考古題日期：由新到舊（降冪）排序
+      const exams = [...new Set(allQuestions.map(q => String(q.exam)))].filter(Boolean).sort((a, b) => {
+        return b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' });
+      });
+
+      // 章節與核心主題升冪排序
+      const chapters = [...new Set(allQuestions.map(q => q.chapter))].filter(Boolean).sort((a, b) => {
+        return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+      });
+      const topics = [...new Set(allQuestions.map(q => q.topic))].filter(Boolean).sort();
+
+      document.getElementById('filterCourse').innerHTML = '<option value="">全部課程</option>' + courses.map(c => `<option value="${c}">${c}</option>`).join('');
+      document.getElementById('filterExam').innerHTML = '<option value="">全部考題</option>' + exams.map(e => `<option value="${e}">${e}</option>`).join('');
+      document.getElementById('filterChapter').innerHTML = '<option value="">全部章節</option>' + chapters.map(ch => `<option value="${ch}">${ch}</option>`).join('');
+      document.getElementById('filterTopic').innerHTML = '<option value="">全部主題</option>' + topics.map(t => `<option value="${t}">${t}</option>`).join('');
+    }
+
+    function applyFilters() {
+      const courseVal = document.getElementById('filterCourse').value;
+      const examVal = document.getElementById('filterExam').value;
+      const chapterVal = document.getElementById('filterChapter').value;
+      const topicVal = document.getElementById('filterTopic').value;
+      const minCountVal = Number(document.getElementById('filterMinCount').value) || 1;
+      const keywordVal = document.getElementById('filterKeyword').value.trim().toLowerCase();
+      const isDeduplicate = document.getElementById('chkDeduplicate').checked;
+      const isReviewOnly = document.getElementById('chkReviewOnly').checked;
+
+      const seenKeys = new Set();
+
+      filteredQuestions = allQuestions.filter((q, index) => {
+        const key = normalizeKey(q.question);
+        const matchCourse = !courseVal || q.course === courseVal;
+        const matchExam = !examVal || String(q.exam) === examVal;
+        const matchChapter = !chapterVal || q.chapter === chapterVal;
+        const matchTopic = !topicVal || q.topic === topicVal;
+        const matchCount = (q.count >= minCountVal);
+        const matchKw = !keywordVal || 
+          (q.question && q.question.toLowerCase().includes(keywordVal)) ||
+          (q.answer && q.answer.toLowerCase().includes(keywordVal)) ||
+          (q.chapter && q.chapter.toLowerCase().includes(keywordVal)) ||
+          (q.topic && q.topic.toLowerCase().includes(keywordVal)) ||
+          (q.explanation && q.explanation.toLowerCase().includes(keywordVal));
+        
+        const matchReview = !isReviewOnly || reviewSet.has(key);
+
+        if (!matchCourse || !matchExam || !matchChapter || !matchTopic || !matchCount || !matchKw || !matchReview) return false;
+
+        if (isDeduplicate) {
+          if (seenKeys.has(key)) return false;
+          seenKeys.add(key);
+        }
+
+        q._originalIndex = index;
+        return true;
+      });
+
+      updateReviewCountBadge();
+      selectedIndices = new Set(filteredQuestions.map(q => q._originalIndex));
+      renderTable();
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('questionTableBody');
+      document.getElementById('filteredCount').innerText = `${filteredQuestions.length} 題`;
+      document.getElementById('selectedCount').innerText = selectedIndices.size;
+
+      if (filteredQuestions.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-400">查無符合條件的考古題</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filteredQuestions.map((q) => {
+        const isChecked = selectedIndices.has(q._originalIndex);
+        const key = normalizeKey(q.question);
+        const isReviewed = reviewSet.has(key);
+        const hasImg = (q.question && q.question.includes('![')) || (q.explanation && q.explanation.includes('!['));
+        const cleanQuestion = q.question ? q.question.replace(/<[^>]*>/g, '').replace(/!\[.*?\]\(.*?\)/g, '[圖片]') : '';
+        const countBadge = q.count > 1 
+          ? `<span class="inline-flex items-center gap-1 text-xs font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full"><i class="fa-solid fa-fire text-amber-500"></i> ${q.count} 次</span>`
+          : `<span class="text-xs text-slate-400">1 次</span>`;
+
+        const chapterBadge = q.chapter ? `<div class="text-xs font-medium text-indigo-700 truncate max-w-[120px]" title="${escapeHtml(q.chapter)}"><i class="fa-solid fa-book mr-1 text-indigo-400"></i>${escapeHtml(q.chapter)}</div>` : '';
+        const topicBadge = q.topic ? `<div class="text-xs text-emerald-700 truncate max-w-[120px]" title="${escapeHtml(q.topic)}"><i class="fa-solid fa-tag mr-1 text-emerald-400"></i>${escapeHtml(q.topic)}</div>` : '';
+
+        return `
+          <tr class="hover:bg-indigo-50/50 transition">
+            <td class="p-3 text-center">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleSelect(${q._originalIndex})" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer">
+            </td>
+            <td class="p-3 text-center">
+              <button onclick="toggleReviewFlag('${escapeQuotes(q.question)}')" class="text-base transition focus:outline-none" title="${isReviewed ? '取消複習' : '標記複習'}">
+                <i class="${isReviewed ? 'fa-solid fa-bookmark text-rose-500 scale-110' : 'fa-regular fa-bookmark text-slate-300 hover:text-rose-400'}"></i>
+              </button>
+            </td>
+            <td class="p-3 text-center font-mono text-slate-500">#${q.num || '-'}</td>
+            <td class="p-3 text-center">${countBadge}</td>
+            <td class="p-3 text-slate-600 truncate">${q.exam || '-'}</td>
+            <td class="p-3">
+              ${chapterBadge || '<span class="text-xs text-slate-400">-</span>'}
+              ${topicBadge}
+            </td>
+            <td class="p-3 text-slate-800 max-w-md" title="${escapeHtml(cleanQuestion)}">
+              ${cleanQuestion.substring(0,55)}${cleanQuestion.length > 55 ? '...' : ''}
+              ${hasImg ? `<span class="ml-2 inline-flex items-center gap-1 text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded"><i class="fa-solid fa-image"></i> 圖</span>` : ''}
+            </td>
+            <td class="p-3 text-center">
+              <button onclick="startPracticeSingle(${q._originalIndex})" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-semibold px-2.5 py-1 rounded border border-indigo-200 transition">練習</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function toggleReviewFlag(questionText) {
+      const key = normalizeKey(questionText);
+      if (reviewSet.has(key)) {
+        reviewSet.delete(key);
+      } else {
+        reviewSet.add(key);
+      }
+      saveReviews();
+      applyFilters();
+    }
+
+    function toggleCurrentCardReview() {
+      const q = practiceList[currentPracticePointer];
+      if (!q) return;
+      toggleReviewFlag(q.question);
+      updateCardReviewButton();
+    }
+
+    function updateCardReviewButton() {
+      const q = practiceList[currentPracticePointer];
+      if (!q) return;
+      const key = normalizeKey(q.question);
+      const isReviewed = reviewSet.has(key);
+      const btn = document.getElementById('btnCardReview');
+      if (isReviewed) {
+        btn.className = 'bg-rose-600 hover:bg-rose-700 text-white px-3 py-1 rounded-full font-bold flex items-center gap-1.5 transition shadow';
+        btn.innerHTML = `<i class="fa-solid fa-bookmark"></i> 已標記複習`;
+      } else {
+        btn.className = 'bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 px-3 py-1 rounded-full font-bold flex items-center gap-1.5 transition';
+        btn.innerHTML = `<i class="fa-regular fa-bookmark"></i> 註記複習`;
+      }
+    }
+
+    function updateReviewCountBadge() {
+      document.getElementById('reviewCountBadge').innerText = reviewSet.size;
+    }
+
+    function saveReviews() {
+      localStorage.setItem('fin_management_reviews_v1', JSON.stringify([...reviewSet]));
+      updateReviewCountBadge();
+    }
+
+    function clearAllReviewFlags() {
+      if (confirm('確定要清空所有「需複習」的註記嗎？')) {
+        reviewSet.clear();
+        saveReviews();
+        applyFilters();
+      }
+    }
+
+    function toggleSelectAll(select) {
+      if (select) filteredQuestions.forEach(q => selectedIndices.add(q._originalIndex));
+      else selectedIndices.clear();
+      renderTable();
+    }
+
+    function toggleSelect(index) {
+      if (selectedIndices.has(index)) selectedIndices.delete(index);
+      else selectedIndices.add(index);
+      document.getElementById('selectedCount').innerText = selectedIndices.size;
+    }
+
+    function startPractice() {
+      if (selectedIndices.size === 0) { alert('請先勾選題目！'); return; }
+      practiceList = allQuestions.filter((_, idx) => selectedIndices.has(idx));
+      currentPracticePointer = 0; showPracticeView();
+    }
+    
+    function startPracticeSingle(originalIdx) {
+      practiceList = [allQuestions[originalIdx]];
+      currentPracticePointer = 0; showPracticeView();
+    }
+
+    function showPracticeView() {
+      document.getElementById('listViewSection').classList.add('hidden');
+      document.getElementById('practiceViewSection').classList.remove('hidden');
+      document.getElementById('totalPracticeCount').innerText = practiceList.length;
+      loadQuestionCard();
+    }
+
+    function backToList() {
+      document.getElementById('practiceViewSection').classList.add('hidden');
+      document.getElementById('listViewSection').classList.remove('hidden');
+      applyFilters();
+    }
+
+    function loadQuestionCard() {
+      const q = practiceList[currentPracticePointer];
+      document.getElementById('currentQuestionIndex').innerText = currentPracticePointer + 1;
+      document.getElementById('cardCourseBadge').innerText = q.course || '財務管理';
+      document.getElementById('cardExamBadge').innerText = q.exam || '考古題';
+      
+      // 講義章節與核心主題標籤動態呈現
+      const chapterBadge = document.getElementById('cardChapterBadge');
+      if (q.chapter) {
+        document.getElementById('cardChapterText').innerText = q.chapter;
+        chapterBadge.classList.remove('hidden');
+      } else {
+        chapterBadge.classList.add('hidden');
+      }
+
+      const topicBadge = document.getElementById('cardTopicBadge');
+      if (q.topic) {
+        document.getElementById('cardTopicText').innerText = q.topic;
+        topicBadge.classList.remove('hidden');
+      } else {
+        topicBadge.classList.add('hidden');
+      }
+
+      document.getElementById('cardCountBadge').innerHTML = `<i class="fa-solid fa-fire text-amber-400"></i> 出現 ${q.count || 1} 次`;
+      document.getElementById('cardQuestionNum').innerText = `#${q.num || (currentPracticePointer + 1)}`;
+      
+      updateCardReviewButton();
+
+      const qTextContainer = document.getElementById('cardQuestionText');
+      qTextContainer.innerHTML = marked.parse(q.question || '無題目內容');
+      
+      document.getElementById('cardAnswerText').innerText = q.answer || '無標準答案';
+      
+      const expContainer = document.getElementById('cardExplanationText');
+      expContainer.innerHTML = marked.parse(q.explanation || '無補充說明');
+
+      document.getElementById('answerContainer').classList.add('hidden');
+      document.getElementById('explanationContainer').classList.add('hidden');
+      document.getElementById('iconAnswer').className = 'fa-solid fa-chevron-down';
+      document.getElementById('iconExplanation').className = 'fa-solid fa-chevron-down';
+
+      setupExplanationImages();
+
+      if (window.MathJax) {
+        MathJax.typesetPromise([qTextContainer, expContainer]);
+      }
+    }
+
+    function toggleExplanation() {
+      const container = document.getElementById('explanationContainer');
+      const icon = document.getElementById('iconExplanation');
+      if (container.classList.contains('hidden')) {
+        container.classList.remove('hidden');
+        icon.className = 'fa-solid fa-chevron-up';
+        setupExplanationImages();
+        if (window.MathJax) {
+          MathJax.typesetPromise([document.getElementById('cardExplanationText')]);
+        }
+      } else {
+        container.classList.add('hidden');
+        icon.className = 'fa-solid fa-chevron-down';
+      }
+    }
+
+    function toggleAnswer() {
+      const container = document.getElementById('answerContainer');
+      const icon = document.getElementById('iconAnswer');
+      if (container.classList.contains('hidden')) { container.classList.remove('hidden'); icon.className = 'fa-solid fa-chevron-up'; }
+      else { container.classList.add('hidden'); icon.className = 'fa-solid fa-chevron-down'; }
+    }
+
+    function setupExplanationImages() {
+      const images = document.querySelectorAll('#cardQuestionText img, #cardExplanationText img');
+      images.forEach(img => {
+        img.onclick = null; 
+        img.onclick = function(e) { 
+          e.stopPropagation(); 
+          openLightbox(this.src); 
+        };
+      });
+    }
+
+    function openLightbox(imgSrc) {
+      const modal = document.getElementById('lightboxModal');
+      const lightboxImg = document.getElementById('lightboxImage');
+      lightboxImg.src = imgSrc;
+      modal.classList.remove('opacity-0', 'pointer-events-none');
+      modal.classList.add('opacity-100');
+      lightboxImg.classList.remove('scale-90');
+      lightboxImg.classList.add('scale-100');
+    }
+
+    function closeLightbox() {
+      const modal = document.getElementById('lightboxModal');
+      const lightboxImg = document.getElementById('lightboxImage');
+      modal.classList.remove('opacity-100');
+      modal.classList.add('opacity-0', 'pointer-events-none');
+      lightboxImg.classList.remove('scale-100');
+      lightboxImg.classList.add('scale-90');
+    }
+
+    function nextQuestion(random = false) {
+      if (random) currentPracticePointer = Math.floor(Math.random() * practiceList.length);
+      else { if (currentPracticePointer < practiceList.length - 1) currentPracticePointer++; else { alert('完成一輪！循環回到第 1 題。'); currentPracticePointer = 0; } }
+      loadQuestionCard();
+    }
+    
+    function prevQuestion() { 
+      if (currentPracticePointer > 0) currentPracticePointer--; 
+      else currentPracticePointer = practiceList.length - 1; 
+      loadQuestionCard(); 
+    }
+
+    // 智能匯入處理：支援「對應講義章節」與「核心主題」欄位
+    function handleFileUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+          const oldExpMap = new Map();
+          allQuestions.forEach(q => {
+            if (q.question) {
+              oldExpMap.set(normalizeKey(q.question), q.explanation || '');
+            }
+          });
+
+          let updatedExpCount = 0;
+
+          const newQuestions = jsonData.map((row, index) => {
+            const findValue = (keys) => {
+              for (const key of Object.keys(row)) {
+                const cleanKey = key.trim();
+                if (keys.includes(cleanKey)) {
+                  return row[key];
+                }
+              }
+              return null;
+            };
+
+            const courseVal = findValue(['課程', '科目']) || '財務管理';
+            const examVal = findValue(['考古題', '試卷', '考試日期', '年份']) || '未分類';
+            const chapterVal = findValue(['對應講義章節', '講義章節', '章節', 'Chapter']) || '';
+            const topicVal = findValue(['核心主題', '主題', '主題分類', 'Topic']) || '';
+            const numVal = findValue(['#', '題號', '編號']) || (index + 1);
+            const answerVal = findValue(['答案', '標準答案']) || '';
+            const questionVal = findValue(['題目', '題目內容']) || '';
+            const expVal = findValue(['補充說明', '解析', '詳解', '說明', '備註']) || '';
+            const countVal = findValue(['出現次數', '次數']) || null;
+
+            const qText = String(questionVal).trim();
+            const expText = String(expVal).trim();
+            const key = normalizeKey(qText);
+
+            if (oldExpMap.has(key)) {
+              if (oldExpMap.get(key) !== expText) {
+                updatedExpCount++;
+              }
+            }
+
+            return {
+              course: String(courseVal).trim(),
+              exam: String(examVal).trim(),
+              chapter: String(chapterVal).trim(),
+              topic: String(topicVal).trim(),
+              num: numVal,
+              answer: String(answerVal).trim(),
+              question: qText,
+              explanation: expText,
+              excelCount: countVal
+            };
+          });
+
+          allQuestions = newQuestions;
+          processQuestionCounts();
+
+          const now = new Date();
+          const timeStr = `${now.getMonth()+1}/${now.getDate()} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+
+          localStorage.setItem('fin_management_questions_v1_5', JSON.stringify(allQuestions));
+          localStorage.setItem('fin_management_questions_time', timeStr);
+
+          document.getElementById('importTimestamp').innerText = `已載入匯入版本：${timeStr} (${allQuestions.length} 題)`;
+
+          populateFilters(); 
+          applyFilters();
+
+          alert(`🎉 匯入完成！\n• 總共載入：${allQuestions.length} 筆資料\n• 補充說明有變更：${updatedExpCount} 題\n• 匯入時間：${timeStr}`);
+          
+          e.target.value = '';
+        } catch (err) { 
+          console.error(err);
+          alert('❌ 匯入失敗，請確認檔案格式是否正確！'); 
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function resetData() {
+      if (confirm('確定要徹底清除所有快取並恢復預設狀態嗎？')) {
+        localStorage.removeItem('fin_management_questions_v1_5');
+        localStorage.removeItem('fin_management_questions_time');
+        allQuestions = [...initialQuestions];
+        document.getElementById('importTimestamp').innerText = '目前版本：預設題庫';
+        processQuestionCounts();
+        populateFilters(); 
+        applyFilters();
+        alert('已成功清空快取並重置！');
+      }
+    }
+
+    function escapeQuotes(text) {
+      if (!text) return '';
+      return text.replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, '\\n');
+    }
+    
+    function escapeHtml(text) { 
+      if (!text) return ''; 
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); 
+    }
+  </script>
+</body>
+</html>
