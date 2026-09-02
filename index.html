@@ -79,7 +79,7 @@
         </button>
         <label class="cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white text-sm px-3 py-1.5 rounded-lg border border-indigo-400 shadow-sm flex items-center gap-2 transition" title="手動載入本機 Excel 檔案（僅此瀏覽器暫時使用，不會覆蓋線上檔案）">
           <i class="fa-solid fa-file-excel"></i> 手動匯入 Excel
-          <input type="file" id="excel-file-input" accept=".xlsx, .xls" class="hidden" onchange="handleFileUpload(event)">
+          <input type="file" id="excel-file-input" accept=".xlsx, .xls, .csv" class="hidden" onchange="handleFileUpload(event)">
         </label>
       </div>
     </div>
@@ -175,9 +175,22 @@
             <span class="font-bold text-slate-700">題目清單</span>
             <span id="filteredCount" class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">0 題</span>
           </div>
-          <div class="flex items-center space-x-2">
+          
+          <!-- 操作按鈕列（含流水序號範圍選取） -->
+          <div class="flex flex-wrap items-center gap-2">
             <button onclick="toggleSelectAll(true)" class="text-xs bg-slate-200 hover:bg-slate-300 px-3 py-1.5 rounded font-medium transition">全選</button>
             <button onclick="toggleSelectAll(false)" class="text-xs bg-slate-200 hover:bg-slate-300 px-3 py-1.5 rounded font-medium transition">取消全選</button>
+            
+            <!-- 依清單流水序號範圍選取 -->
+            <div class="flex items-center space-x-1 text-xs bg-white border border-slate-300 px-2 py-1 rounded-lg text-slate-600 shadow-sm">
+              <span>選取第</span>
+              <input type="number" id="rangeStart" placeholder="1" class="w-12 text-center border border-slate-300 rounded py-0.5 font-semibold text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+              <span>至</span>
+              <input type="number" id="rangeEnd" placeholder="50" class="w-12 text-center border border-slate-300 rounded py-0.5 font-semibold text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+              <span>筆</span>
+              <button onclick="selectRangeBySequence()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded font-medium transition">勾選</button>
+            </div>
+
             <button onclick="startPractice()" class="text-sm bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-4 py-1.5 rounded-lg shadow-sm flex items-center gap-2 transition">
               <i class="fa-solid fa-circle-play"></i> 開始練習 Selected (<span id="selectedCount">0</span>)
             </button>
@@ -188,9 +201,10 @@
           <table class="w-full text-left border-collapse text-sm">
             <thead>
               <tr class="bg-slate-50 text-slate-500 border-b border-slate-200 font-semibold text-xs">
+                <th class="p-3 w-12 text-center text-indigo-600 font-bold">序號</th>
                 <th class="p-3 w-12 text-center">選擇</th>
                 <th class="p-3 w-14 text-center">複習</th>
-                <th class="p-3 w-14 text-center">題號</th>
+                <th class="p-3 w-14 text-center">原題號</th>
                 <th class="p-3 w-20 text-center">出現次數</th>
                 <th class="p-3 w-24">考古題</th>
                 <th class="p-3 w-28">章節 / 主題</th>
@@ -210,9 +224,15 @@
         <button onclick="backToList()" class="text-slate-600 hover:text-indigo-600 font-medium text-sm flex items-center gap-2 transition">
           <i class="fa-solid fa-arrow-left"></i> 返回題目清單
         </button>
-        <div class="text-sm font-semibold text-slate-600">
-          進度：<span id="currentQuestionIndex" class="text-indigo-600 text-base font-bold">1</span> / <span id="totalPracticeCount">0</span> 題
+        
+        <!-- 可直接鍵入數字的跳題進度指示框 -->
+        <div class="text-sm font-semibold text-slate-600 flex items-center gap-1.5">
+          進度：第 
+          <input type="number" id="inputJumpPointer" min="1" onchange="jumpToPracticeIndex(this.value)" 
+                 class="w-14 text-center py-0.5 px-1 bg-indigo-50 border border-indigo-300 rounded font-bold text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner">
+          / <span id="totalPracticeCount">0</span> 題
         </div>
+
         <button onclick="nextQuestion(true)" class="text-slate-500 hover:text-indigo-600 text-xs flex items-center gap-1 transition">
           <i class="fa-solid fa-shuffle"></i> 隨機抽題
         </button>
@@ -296,13 +316,9 @@
 
   <script>
     // ==== 題庫來源設定 ====
-    // 這個檔名要跟放在同一個 GitHub repo 資料夾裡的 Excel 檔案名稱完全一致。
-    // 之後只要更新/覆蓋這個 Excel 檔案並 commit 到 GitHub，同學重新整理網頁就會拿到最新題目，
-    // 完全不用重新產生或修改這個 HTML 檔案。
     const EXCEL_FILE_URL = '財務管理考古題.xlsx';
 
-    // 極簡備援題庫：只有在完全抓不到 Excel 檔案、也沒有任何本機快取時才會顯示，
-    // 用意是讓頁面至少能正常運作並提示使用者發生什麼問題。
+    // 極簡備援題庫
     const fallbackQuestions = [
       {
         course: "財務管理",
@@ -324,36 +340,38 @@
     let currentPracticePointer = 0;
     let reviewSet = new Set();
 
-    marked.setOptions({ breaks: true });
-    const normalizeKey = str => (str || '').replace(/\s+/g, '').toLowerCase();
+    if (window.marked) {
+      marked.setOptions({ breaks: true });
+    }
+    const normalizeKey = str => (str ? String(str).replace(/\s+/g, '').toLowerCase() : '');
 
-    // 共用的欄位對應邏輯：把 Excel 讀出來的 JSON rows 轉成系統內部使用的題目物件
-    // (自動載入與手動匯入都共用這一份邏輯，確保欄位規則一致)
+    // 共用的欄位對應邏輯
     function mapRowsToQuestions(jsonData, oldExpMap) {
       let updatedExpCount = 0;
       const newQuestions = jsonData.map((row, index) => {
-        const findValue = (keys) => {
-          for (const key of Object.keys(row)) {
-            const cleanKey = key.trim();
-            if (keys.includes(cleanKey)) {
-              return row[key];
+        const rowKeys = Object.keys(row);
+        const findValue = (possibleNames) => {
+          for (let k of rowKeys) {
+            const clean = k.replace(/\s+/g, '').toLowerCase();
+            for (let target of possibleNames) {
+              if (clean === target.toLowerCase()) return row[k];
             }
           }
           return null;
         };
 
         const courseVal = findValue(['課程', '科目']) || '財務管理';
-        const examVal = findValue(['考古題', '試卷', '考試日期', '年份']) || '未分類';
-        const chapterVal = findValue(['對應講義章節', '講義章節', '章節', 'Chapter']) || '';
-        const topicVal = findValue(['核心主題', '主題', '主題分類', 'Topic']) || '';
-        const numVal = findValue(['#', '題號', '編號']) || (index + 1);
+        const examVal = findValue(['考古題', '試卷', '考試日期', '年份', '日期']) || '未分類';
+        const chapterVal = findValue(['對應講義章節', '講義章節', '章節', 'chapter']) || '';
+        const topicVal = findValue(['核心主題', '主題', '主題分類', 'topic']) || '';
+        const numVal = findValue(['#', '題號', '編號', '序號']) || (index + 1);
         const answerVal = findValue(['答案', '標準答案']) || '';
-        const questionVal = findValue(['題目', '題目內容']) || '';
+        const questionVal = findValue(['題目', '題目內容', '題幹', 'question', '題目內文']) || '';
         const expVal = findValue(['補充說明', '解析', '詳解', '說明', '備註']) || '';
         const countVal = findValue(['出現次數', '次數']) || null;
 
-        const qText = String(questionVal).trim();
-        const expText = String(expVal).trim();
+        const qText = String(questionVal || '').trim();
+        const expText = String(expVal || '').trim();
         const key = normalizeKey(qText);
 
         if (oldExpMap && oldExpMap.has(key)) {
@@ -373,35 +391,69 @@
           explanation: expText,
           excelCount: countVal
         };
-      }).filter(q => q.question); // 過濾掉空白列
+      }).filter(q => q.question);
 
       return { newQuestions, updatedExpCount };
     }
 
     function applyLoadedQuestions(newQuestions, statusHtml) {
-      allQuestions = newQuestions;
+      allQuestions = (newQuestions && newQuestions.length > 0) ? newQuestions : [...fallbackQuestions];
       processQuestionCounts();
       document.getElementById('importTimestamp').innerHTML = statusHtml;
       populateFilters();
       applyFilters();
     }
 
-    // 自動從線上 Excel 檔案載入題庫（頁面開啟時，以及按「重新整理題庫」時執行）
+    // 自動從線上 Excel 檔案載入題庫
     async function loadDefaultExcel(isManualRefresh) {
       const statusEl = document.getElementById('importTimestamp');
-      statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 題庫載入中...';
+      
+      // 本機 file:// 環境保護
+      if (window.location.protocol === 'file:') {
+        const savedData = localStorage.getItem('fin_management_questions_v1_5');
+        const savedTime = localStorage.getItem('fin_management_questions_time');
+        if (savedData) {
+          try {
+            const cached = JSON.parse(savedData);
+            if (cached && cached.length > 0) {
+              applyLoadedQuestions(
+                cached,
+                `<i class="fa-solid fa-box-archive text-amber-300"></i> 本機快取題庫（${savedTime || '已載入'}，共 ${cached.length} 題）`
+              );
+              if (isManualRefresh) alert(`已重新載入快取題庫（共 ${cached.length} 題）`);
+              return;
+            }
+          } catch(e) {}
+        }
+        applyLoadedQuestions(
+          fallbackQuestions,
+          `<i class="fa-solid fa-circle-info text-amber-300"></i> 本機模式：請點擊右上角「手動匯入 Excel」`
+        );
+        return;
+      }
 
+      // 線上 GitHub Pages 模式
+      statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 線上題庫載入中...';
       try {
-        // 加上時間戳參數避免瀏覽器快取到舊版 Excel 檔案
         const url = encodeURI(EXCEL_FILE_URL) + '?t=' + Date.now();
         const resp = await fetch(url);
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
 
         const buf = await resp.arrayBuffer();
         const workbook = XLSX.read(new Uint8Array(buf), { type: 'array' });
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        
+        let worksheet = null;
+        for (let name of workbook.SheetNames) {
+          const sheet = workbook.Sheets[name];
+          const testJson = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+          if (testJson && testJson.length > 0) {
+            worksheet = sheet;
+            break;
+          }
+        }
+        if (!worksheet) worksheet = workbook.Sheets[workbook.SheetNames[0]];
 
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
         const { newQuestions } = mapRowsToQuestions(jsonData, null);
 
         if (newQuestions.length === 0) throw new Error('Excel 內容為空');
@@ -411,15 +463,14 @@
 
         applyLoadedQuestions(
           newQuestions,
-          `<i class="fa-solid fa-database"></i> 題庫來源：${EXCEL_FILE_URL}（共 ${newQuestions.length} 題，載入於 ${timeStr}）`
+          `<i class="fa-solid fa-database"></i> 題庫來源：${EXCEL_FILE_URL}（共 ${newQuestions.length} 題，更新於 ${timeStr}）`
         );
 
         if (isManualRefresh) {
           alert(`✅ 題庫已更新！\n共載入 ${newQuestions.length} 題`);
         }
       } catch (err) {
-        console.error('自動載入 Excel 題庫失敗：', err);
-        // 退而求其次：嘗試使用本機手動匯入過的快取
+        console.warn('線上讀取失敗：', err);
         const savedData = localStorage.getItem('fin_management_questions_v1_5');
         const savedTime = localStorage.getItem('fin_management_questions_time');
         if (savedData) {
@@ -427,20 +478,19 @@
             const cached = JSON.parse(savedData);
             applyLoadedQuestions(
               cached,
-              `<i class="fa-solid fa-triangle-exclamation text-yellow-300"></i> 無法連線至線上 Excel，改用本機快取版本（${savedTime || ''}）`
+              `<i class="fa-solid fa-triangle-exclamation text-amber-300"></i> 無法連線線上檔案，改用本機快取（${savedTime || ''}）`
             );
             return;
-          } catch (e) { /* fall through to fallback */ }
+          } catch (e) {}
         }
         applyLoadedQuestions(
           fallbackQuestions,
-          `<i class="fa-solid fa-triangle-exclamation text-yellow-300"></i> 無法載入線上 Excel 題庫，顯示範例題目`
+          `<i class="fa-solid fa-circle-info text-amber-300"></i> 請點擊右上角「手動匯入 Excel」`
         );
       }
     }
 
     window.onload = function() {
-      // 載入複習標記集合
       const savedReviews = localStorage.getItem('fin_management_reviews_v1');
       if (savedReviews) {
         try { reviewSet = new Set(JSON.parse(savedReviews)); } catch(e) { reviewSet = new Set(); }
@@ -463,16 +513,13 @@
       });
     }
 
-    // 填入篩選清單（含由新到舊日期排序、章節與主題排序）
     function populateFilters() {
       const courses = [...new Set(allQuestions.map(q => q.course))].filter(Boolean).sort();
       
-      // 考古題日期：由新到舊（降冪）排序
       const exams = [...new Set(allQuestions.map(q => String(q.exam)))].filter(Boolean).sort((a, b) => {
         return b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' });
       });
 
-      // 章節與核心主題升冪排序
       const chapters = [...new Set(allQuestions.map(q => q.chapter))].filter(Boolean).sort((a, b) => {
         return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
       });
@@ -530,18 +577,25 @@
 
     function renderTable() {
       const tbody = document.getElementById('questionTableBody');
-      document.getElementById('filteredCount').innerText = `${filteredQuestions.length} 題`;
+      const totalFiltered = filteredQuestions.length;
+      document.getElementById('filteredCount').innerText = `${totalFiltered} 題`;
       document.getElementById('selectedCount').innerText = selectedIndices.size;
 
+      const rangeEndInput = document.getElementById('rangeEnd');
+      if (rangeEndInput && !rangeEndInput.value) {
+        rangeEndInput.placeholder = totalFiltered > 0 ? totalFiltered : '50';
+      }
+
       if (filteredQuestions.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-400">查無符合條件的考古題</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-slate-400">查無符合條件的考古題</td></tr>`;
         return;
       }
 
-      tbody.innerHTML = filteredQuestions.map((q) => {
+      tbody.innerHTML = filteredQuestions.map((q, seqIdx) => {
         const isChecked = selectedIndices.has(q._originalIndex);
         const key = normalizeKey(q.question);
         const isReviewed = reviewSet.has(key);
+        const seqNum = seqIdx + 1; // 流水序號
         const hasImg = (q.question && q.question.includes('![')) || (q.explanation && q.explanation.includes('!['));
         const cleanQuestion = q.question ? q.question.replace(/<[^>]*>/g, '').replace(/!\[.*?\]\(.*?\)/g, '[圖片]') : '';
         const countBadge = q.count > 1 
@@ -553,6 +607,7 @@
 
         return `
           <tr class="hover:bg-indigo-50/50 transition">
+            <td class="p-3 text-center font-mono font-bold text-slate-400 text-xs">${seqNum}</td>
             <td class="p-3 text-center">
               <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleSelect(${q._originalIndex})" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer">
             </td>
@@ -578,6 +633,36 @@
           </tr>
         `;
       }).join('');
+    }
+
+    // 依目前篩選清單流水順序選取指定範圍筆數
+    function selectRangeBySequence() {
+      const total = filteredQuestions.length;
+      if (total === 0) {
+        alert('目前篩選條件下沒有題目可選取！');
+        return;
+      }
+
+      let start = parseInt(document.getElementById('rangeStart').value, 10);
+      let end = parseInt(document.getElementById('rangeEnd').value, 10);
+
+      if (isNaN(start)) start = 1;
+      if (isNaN(end)) end = total;
+
+      if (start < 1) start = 1;
+      if (end > total) end = total;
+
+      if (start > end) {
+        alert(`起始筆數 (${start}) 不可大於結束筆數 (${end})！`);
+        return;
+      }
+
+      selectedIndices.clear();
+      for (let i = start - 1; i < end; i++) {
+        selectedIndices.add(filteredQuestions[i]._originalIndex);
+      }
+
+      renderTable();
     }
 
     function toggleReviewFlag(questionText) {
@@ -668,11 +753,13 @@
 
     function loadQuestionCard() {
       const q = practiceList[currentPracticePointer];
-      document.getElementById('currentQuestionIndex').innerText = currentPracticePointer + 1;
+      
+      const jumpInput = document.getElementById('inputJumpPointer');
+      if (jumpInput) jumpInput.value = currentPracticePointer + 1;
+
       document.getElementById('cardCourseBadge').innerText = q.course || '財務管理';
       document.getElementById('cardExamBadge').innerText = q.exam || '考古題';
       
-      // 講義章節與核心主題標籤動態呈現
       const chapterBadge = document.getElementById('cardChapterBadge');
       if (q.chapter) {
         document.getElementById('cardChapterText').innerText = q.chapter;
@@ -695,12 +782,12 @@
       updateCardReviewButton();
 
       const qTextContainer = document.getElementById('cardQuestionText');
-      qTextContainer.innerHTML = marked.parse(q.question || '無題目內容');
+      qTextContainer.innerHTML = (window.marked ? marked.parse(q.question || '無題目內容') : (q.question || ''));
       
       document.getElementById('cardAnswerText').innerText = q.answer || '無標準答案';
       
       const expContainer = document.getElementById('cardExplanationText');
-      expContainer.innerHTML = marked.parse(q.explanation || '無補充說明');
+      expContainer.innerHTML = (window.marked ? marked.parse(q.explanation || '無補充說明') : (q.explanation || ''));
 
       document.getElementById('answerContainer').classList.add('hidden');
       document.getElementById('explanationContainer').classList.add('hidden');
@@ -709,9 +796,20 @@
 
       setupExplanationImages();
 
-      if (window.MathJax) {
-        MathJax.typesetPromise([qTextContainer, expContainer]);
+      if (window.MathJax && MathJax.typesetPromise) {
+        MathJax.typesetPromise([qTextContainer, expContainer]).catch(()=>{});
       }
+    }
+
+    function jumpToPracticeIndex(val) {
+      const target = parseInt(val, 10);
+      if (isNaN(target) || target < 1 || target > practiceList.length) {
+        alert(`請輸入 1 到 ${practiceList.length} 之間的有效題數！`);
+        document.getElementById('inputJumpPointer').value = currentPracticePointer + 1;
+        return;
+      }
+      currentPracticePointer = target - 1;
+      loadQuestionCard();
     }
 
     function toggleExplanation() {
@@ -721,8 +819,8 @@
         container.classList.remove('hidden');
         icon.className = 'fa-solid fa-chevron-up';
         setupExplanationImages();
-        if (window.MathJax) {
-          MathJax.typesetPromise([document.getElementById('cardExplanationText')]);
+        if (window.MathJax && MathJax.typesetPromise) {
+          MathJax.typesetPromise([document.getElementById('cardExplanationText')]).catch(()=>{});
         }
       } else {
         container.classList.add('hidden');
@@ -743,7 +841,7 @@
         img.onclick = null; 
         img.onclick = function(e) { 
           e.stopPropagation(); 
-          openLightbox(this.src); 
+          openLightbox(this.src);
         };
       });
     }
@@ -774,24 +872,59 @@
     }
     
     function prevQuestion() { 
-      if (currentPracticePointer > 0) currentPracticePointer--; 
-      else currentPracticePointer = practiceList.length - 1; 
-      loadQuestionCard(); 
+      if (currentPracticePointer > 0) currentPracticePointer--;
+      else currentPracticePointer = practiceList.length - 1;
+      loadQuestionCard();
     }
 
-    // 手動匯入：讓使用者可以暫時載入自己電腦上的 Excel 檔案來預覽（僅存在這個瀏覽器，
-    // 不會影響線上的 Excel 檔案，也不會影響其他同學看到的內容）。
-    // 若之後重新整理題庫或重新整理網頁，畫面會改回讀取線上版本的 Excel。
+    // 手動匯入（含寬鬆比對與清空重設）
     function handleFileUpload(e) {
-      const file = e.target.files[0];
-      if (!file) return;
+      console.log('[手動匯入] 開始處理，選取的檔案數量：', e.target.files ? e.target.files.length : 0);
+
+      if (typeof XLSX === 'undefined') {
+        alert('❌ 匯入失敗：Excel 解析函式庫（SheetJS）尚未載入成功，請確認網路連線後重新整理頁面再試一次。');
+        e.target.value = '';
+        return;
+      }
+
+      const file = e.target.files && e.target.files[0];
+      if (!file) {
+        console.warn('[手動匯入] 未偵測到選取的檔案（e.target.files 為空）');
+        return;
+      }
+
       const reader = new FileReader();
+
+      reader.onerror = function() {
+        console.error('[手動匯入] FileReader 讀取失敗：', reader.error);
+        alert('❌ 讀取檔案失敗：' + (reader.error ? reader.error.message : '瀏覽器無法讀取此檔案，請換一個瀏覽器或重新匯出 Excel 後再試。'));
+        e.target.value = '';
+      };
+
+      reader.onabort = function() {
+        console.warn('[手動匯入] 檔案讀取被中斷');
+        alert('❌ 讀取檔案的動作被中斷了，請再試一次。');
+        e.target.value = '';
+      };
+
       reader.onload = function(evt) {
         try {
+          console.log('[手動匯入] 檔案讀取完成，開始解析 Excel...');
           const data = new Uint8Array(evt.target.result);
           const workbook = XLSX.read(data, { type: 'array' });
-          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          
+          let worksheet = null;
+          for (let name of workbook.SheetNames) {
+            const sheet = workbook.Sheets[name];
+            const testJson = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+            if (testJson && testJson.length > 0) {
+              worksheet = sheet;
+              break;
+            }
+          }
+          if (!worksheet) worksheet = workbook.Sheets[workbook.SheetNames[0]];
+
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
 
           const oldExpMap = new Map();
           allQuestions.forEach(q => {
@@ -802,6 +935,11 @@
 
           const { newQuestions, updatedExpCount } = mapRowsToQuestions(jsonData, oldExpMap);
 
+          if (newQuestions.length === 0) {
+            alert('❌ 欄位匹配失敗：未找到包含「題目」名稱的欄位！');
+            return;
+          }
+
           const now = new Date();
           const timeStr = `${now.getMonth()+1}/${now.getDate()} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
 
@@ -810,18 +948,25 @@
 
           applyLoadedQuestions(
             newQuestions,
-            `<i class="fa-solid fa-file-excel"></i> 本機預覽版本：${timeStr}（${newQuestions.length} 題，重新整理後會改回線上版本）`
+            `<i class="fa-solid fa-file-excel"></i> 本機手動載入成功：${timeStr}（共 ${newQuestions.length} 題）`
           );
 
-          alert(`🎉 匯入完成！\n• 總共載入：${newQuestions.length} 筆資料\n• 補充說明有變更：${updatedExpCount} 題\n• 匯入時間：${timeStr}\n\n⚠️ 這只是本機預覽，重新整理網頁後會改回讀取線上的 Excel 檔案。\n若要讓所有同學看到新題目，請更新 GitHub 上的 Excel 檔案。`);
-
-          e.target.value = '';
+          alert(`🎉 匯入完成！\n• 總共載入：${newQuestions.length} 筆資料\n• 補充說明有變更：${updatedExpCount} 題\n• 匯入時間：${timeStr}`);
         } catch (err) {
           console.error(err);
-          alert('❌ 匯入失敗，請確認檔案格式是否正確！');
+          alert('❌ 匯入失敗：' + (err.message || '檔案格式異常'));
+        } finally {
+          e.target.value = '';
         }
       };
-      reader.readAsArrayBuffer(file);
+
+      try {
+        reader.readAsArrayBuffer(file);
+      } catch (err) {
+        console.error('[手動匯入] readAsArrayBuffer 呼叫失敗：', err);
+        alert('❌ 無法開始讀取檔案：' + (err.message || '未知錯誤'));
+        e.target.value = '';
+      }
     }
 
     function escapeQuotes(text) {
@@ -830,8 +975,8 @@
     }
     
     function escapeHtml(text) { 
-      if (!text) return ''; 
-      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); 
+      if (!text) return '';
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
   </script>
 </body>
